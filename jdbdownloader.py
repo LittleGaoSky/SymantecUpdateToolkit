@@ -2,26 +2,59 @@
 # -*- coding: utf-8 -*-
 import re
 import os
-import ftplib
 import requests
 import logging
 import threadpool
 import math
 import time
+import hashlib
+from functools import partial
 
 from collections import namedtuple
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
 logging.basicConfig(filename='symantec.log', level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT)
-
 JdbFile = namedtuple('JdbFile', 'url name size md5')
+poolsize = 32
+pool = threadpool.ThreadPool(poolsize)
+def md5sum(filename):
+    with open(filename, mode='rb') as f:
+        d = hashlib.md5()
+        for buf in iter(partial(f.read, 128), b''):
+            d.update(buf)
+    return d.hexdigest().upper()
 
 
 class ThreadDownloadException(Exception):
     """thrown by t_download while an error occured."""
+    def __init__(self, url, filename, start, end):
+        logging.error('线程异常，重新执行...')
+        chunkdic = {}
+        chunkdic['url'] = url
+        chunkdic['filename'] = filename
+        chunkdic['start'] = start
+        chunkdic['end'] = end
+        logging.info('重新执行线程：{_start}-{_end}'.format(_start=start, _end=end))
+        reqst = threadpool.makeRequests(t_download, [(None,chunkdic)])
+        [pool.putRequest(req) for req in reqst]
 
 
+def t_download(url, filename, start, end):
+    headers = {
+        "Range": "bytes=%d-%d" % (start, end)
+    }
+    try:
+        resp = requests.get(url=url, headers=headers, stream=True)
+        # 打开已存在的文件
+        with open(filename, "r+") as fd:
+            fd.seek(start, 0)
+            # 一块一块的遍历要下载的内容，写入本地jdb文件
+            for chunk in resp.iter_content(chunk_size=1024):
+                if chunk:
+                    fd.write(chunk)
+    except:
+        raise ThreadDownloadException(url, filename, start, end)
 
 def get_target(page="http://www.symantec.com/avcenter/download/pages/CS-SAVCE.html"):
     # page给出的MD5值
@@ -49,26 +82,7 @@ def get_target(page="http://www.symantec.com/avcenter/download/pages/CS-SAVCE.ht
         return None
 
 
-def t_download(url, filename, start, end):
-    headers = {
-        "Range": "bytes=%d-%d" % (start, end)
-    }
-    try:
-        resp = requests.get(url=url, headers=headers, stream=True)
-        # 打开已存在的文件
-        with open(filename, "r+") as fd:
-            fd.seek(start, 0)
-            # 一块一块的遍历要下载的内容，写入本地jdb文件
-            for chunk in resp.iter_content(chunk_size=1024):
-                if chunk:
-                    fd.write(chunk)
-    except:
-        raise ThreadDownloadException
-
-
 def download(target):
-    print "start download"
-    target = get_target()
     url = target.url
     filename = target.name
     filesize = target.size
@@ -87,27 +101,26 @@ def download(target):
         chunkdic['end'] = end
         tmp = (None, chunkdic)
         arg_list.append(tmp)
-    poolsize = 32
-    print '开始下载jdb'
+    # poolsize = 32
+    logging.info('开始下载{_filename}'.format(_filename=filename))
     starttime = time.time()
-    pool = threadpool.ThreadPool(poolsize)
+    # pool = threadpool.ThreadPool(poolsize)
     reqst = threadpool.makeRequests(t_download, arg_list)
     [pool.putRequest(req) for req in reqst]
     pool.wait()
-    print '%d seconds' % (time.time() - starttime)
+    logging.info('下载完成，耗时%d seconds' % (time.time() - starttime))
 
 
 if __name__ == "__main__":
-    # 获取目标文件下载信息JdbFile
+    # 获取目标文件下载信息（JdbFile）
     target = get_target()
-    # 若本地Jdb文件不存在，则新建
     if not os.path.exists(target.name):
         with open(target.name, "w") as f:
             pass
-    # 开始下载
-    # 1 使用多线程，分段下载
-    # 1.1 根据JdbFile.size分段
-    # 1.2 download方法，开启多线程，根据分段下载
-    # 2 根据JdbFile.md5校验下载的病毒库完整性
-    # 3 周期下载，每天12点
     download(target)
+    md5 = md5sum(target.name)
+    if md5 == target.md5:
+        logging.info('文件校验通过')
+    else:
+        os.remove(target.name)
+        logging.warning('文件校验失败，并将其移除')
