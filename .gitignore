@@ -1,4 +1,5 @@
 nametuple.py
 test.py
 symantec.log
-vd545607.jdb
+vd*.jdb
+.idea

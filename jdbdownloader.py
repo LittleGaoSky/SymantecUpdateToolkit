@@ -7,6 +7,7 @@ import requests
 import logging
 import threadpool
 import math
+import time
 
 from collections import namedtuple
 
@@ -19,6 +20,7 @@ JdbFile = namedtuple('JdbFile', 'url name size md5')
 
 class ThreadDownloadException(Exception):
     """thrown by t_download while an error occured."""
+
 
 
 def get_target(page="http://www.symantec.com/avcenter/download/pages/CS-SAVCE.html"):
@@ -47,7 +49,7 @@ def get_target(page="http://www.symantec.com/avcenter/download/pages/CS-SAVCE.ht
         return None
 
 
-def t_download(url, filename,  start, end):
+def t_download(url, filename, start, end):
     headers = {
         "Range": "bytes=%d-%d" % (start, end)
     }
@@ -69,12 +71,9 @@ def download(target):
     target = get_target()
     url = target.url
     filename = target.name
-    # filesize = 4096*4
     filesize = target.size
-    chunksize = 1024
+    chunksize = 1 * 1024 * 1024
     chunkcnt = int(math.ceil(filesize * 1.0 / chunksize))
-    poolsize = 16
-    pool = threadpool.ThreadPool(poolsize)
     arg_list = []
     for i in range(chunkcnt):
         offset = chunksize * i
@@ -84,16 +83,18 @@ def download(target):
         chunkdic = {}
         chunkdic['url'] = url
         chunkdic['filename'] = filename
-        chunkdic['start']=start
-        chunkdic['end']=end
-        tmp=(None,chunkdic)
+        chunkdic['start'] = start
+        chunkdic['end'] = end
+        tmp = (None, chunkdic)
         arg_list.append(tmp)
+    poolsize = 32
+    print '开始下载jdb'
+    starttime = time.time()
+    pool = threadpool.ThreadPool(poolsize)
     reqst = threadpool.makeRequests(t_download, arg_list)
-    print 'put in Threadpool'
     [pool.putRequest(req) for req in reqst]
-    print "put finished"
     pool.wait()
-    print "下载结束"
+    print '%d seconds' % (time.time() - starttime)
 
 
 if __name__ == "__main__":
