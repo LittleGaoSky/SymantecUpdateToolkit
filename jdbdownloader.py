@@ -60,7 +60,7 @@ def get_target(page="http://www.symantec.com/avcenter/download/pages/CS-SAVCE.ht
     # page给出的MD5值
     md5_pattern = re.compile(r"[A-F0-9]{32}")
     # page中的jdb文件下载地址
-    url_pattern = re.compile(r"http://definitions\.symantec\.com/defs/jdb/vd[0-9]{6}\.jdb")
+    url_pattern = re.compile(r"http://definitions\.symantec\.com/defs/jdb/vd[0-9a-z]{6}\.jdb")
     try:
         resp = requests.get(url=page)
         # 匹配到jdb文件的下载地址url
